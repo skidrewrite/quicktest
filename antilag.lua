@@ -21,6 +21,8 @@ local CONFIG = {
 	MAX_PENDING_REQUESTS = 3,
 	RENDER_THROTTLE = 0.016, -- throttle excessive renders
 	MAX_FRAME_TIME = 0.05, -- cap frame time at 50ms
+	GC_COLLECTION_INTERVAL = 60, -- incremented to 60 seconds
+	INCREMENTAL_GC = true, -- use incremental garbage collection
 }
 
 -- Internal state
@@ -159,18 +161,30 @@ end
 --[[ ===== MEMORY OPTIMIZATION ===== ]]
 
 function antilag.OptimizeMemory()
-	collectgarbage('collect')
-	fileCache = {} -- Clear file cache to free memory
+	-- Use incremental garbage collection to avoid frame spikes
+	if CONFIG.INCREMENTAL_GC then
+		collectgarbage('step', 100) -- Incremental step instead of full collection
+	else
+		collectgarbage('collect')
+	end
+	
+	-- Limit file cache size
+	if #fileCache > fileCacheMaxSize * 1.5 then
+		fileCache = {}
+	end
 end
 
--- Periodic garbage collection
+-- Periodic garbage collection - IMPROVED: Spreads GC work over time
 task.spawn(function()
 	while true do
 		task.wait(CONFIG.MEMORY_CHECK_INTERVAL)
 		gcCollectInterval = gcCollectInterval + CONFIG.MEMORY_CHECK_INTERVAL
 		
-		if gcCollectInterval >= 30 then
-			antilag.OptimizeMemory()
+		if gcCollectInterval >= CONFIG.GC_COLLECTION_INTERVAL then
+			-- Schedule GC in a separate thread to avoid blocking render
+			task.delay(0.05, function()
+				antilag.OptimizeMemory()
+			end)
 			gcCollectInterval = 0
 		end
 	end
