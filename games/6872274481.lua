@@ -33147,3 +33147,95 @@ run(function()
 		loadstring(res2.Body, 'KrystalDisabler')()
 	end
 end)
+
+run(function()
+    local BuyBlocksModule
+    local GUICheck
+    local Speed
+    local running = false
+
+    local function getShopNPC()
+        local shopFound = false
+        if entitylib.isAlive then
+            local localPosition = entitylib.character.RootPart.Position
+            for _, v in store.shop do
+                if (v.RootPart.Position - localPosition).Magnitude <= 20 then
+                    shopFound = true
+                    break
+                end
+            end
+        end
+        return shopFound
+    end
+
+    BuyBlocksModule = vape.Categories.Inventory:CreateModule({
+        Name = "BuyBlocks",
+        Function = function(enabled)
+            running = enabled
+
+            if enabled then
+                task.spawn(function()
+                    while running do
+                        local canBuy = true
+                        
+                        if GUICheck.Enabled then
+                            if bedwars.AppController:isAppOpen('BedwarsItemShopApp') then
+                                canBuy = true
+                            else
+                                canBuy = false
+                            end
+                        else
+                            canBuy = getShopNPC()
+                        end
+
+                        if canBuy then
+                            local args = {
+                                {
+                                    shopItem = {
+                                        currency = "iron",
+                                        itemType = "wool_white",
+                                        amount = 16,
+                                        price = 8,
+                                        category = "Blocks"
+                                    },
+                                    shopId = "2_item_shop_1"
+                                }
+                            }
+
+                            pcall(function()
+                                game:GetService("ReplicatedStorage")
+                                :WaitForChild("rbxts_include")
+                                :WaitForChild("node_modules")
+                                :WaitForChild("@rbxts")
+                                :WaitForChild("net")
+                                :WaitForChild("out")
+                                :WaitForChild("_NetManaged")
+                                :WaitForChild("BedwarsPurchaseItem")
+                                :InvokeServer(unpack(args))
+                            end)
+                        end
+
+						local spd = Speed.Value
+						spd = spd <= 0 and 1 or spd
+						task.wait(1 / spd)
+                    end
+                end)
+            end
+        end,
+        Tooltip = "Automatically buys wool blocks"
+    })
+
+    GUICheck = BuyBlocksModule:CreateToggle({
+        Name = "GUI Check",
+        Tooltip = "Only buy when shop GUI is open",
+        Default = false
+    })
+
+    Speed = BuyBlocksModule:CreateSlider({
+        Name = "Speed",
+        Min = 1,
+        Max = 20,
+        Default = 10,
+        Tooltip = "Buys per second (higher = faster)"
+    })
+end)
