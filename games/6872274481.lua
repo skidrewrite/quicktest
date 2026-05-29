@@ -33240,8 +33240,6 @@ run(function()
     })
 end)
 
-local Attacking = false
- 
 run(function()
     local LGKillaura, Targets, Sort, Range, UpdateRate, AngleSlider, MaxTargets
     local Mouse, Swing, GUI, BoxColor, ParticleTexture, ParticleColor1, ParticleColor2
@@ -33637,3 +33635,4 @@ run(function()
     })
  
 end)
+
