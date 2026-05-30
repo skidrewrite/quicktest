@@ -4850,7 +4850,7 @@ run(function()
 								})
 								AnimTween:Play()
 							end
-							if not started then task.wait(1 / UpdateRate.Value) end
+							if not started then task.wait(1 / math.clamp(UpdateRate.Value, 1, 60)) end
 						until not Killaura.Enabled or not Animation.Enabled
 					end)
 				end
@@ -4997,7 +4997,7 @@ run(function()
 						entitylib.character.RootPart.CFrame = CFrame.lookAt(entitylib.character.RootPart.Position, Vector3.new(vec.X, entitylib.character.RootPart.Position.Y + 0.001, vec.Z))
 					end
 
-					task.wait(1 / UpdateRate.Value)
+					task.wait(1 / math.clamp(UpdateRate.Value, 1, 60))
 				until not Killaura.Enabled
 			else
 				store.KillauraTarget = nil
@@ -8219,7 +8219,13 @@ run(function()
                 end
 
                 if Loop[methodused] then
-                    NameTags:Clean(runService.RenderStepped:Connect(Loop[methodused]))
+                    local nametagLoopElapsed = 0
+                    NameTags:Clean(runService.RenderStepped:Connect(function(dt)
+                        nametagLoopElapsed += dt
+                        if nametagLoopElapsed < (1 / 30) then return end
+                        nametagLoopElapsed = 0
+                        Loop[methodused]()
+                    end))
                 end
             else
                 if Removed[methodused] then
@@ -14246,7 +14252,7 @@ run(function()
 
 				local lockedPathBlock = nil
 				repeat
-					task.wait(1 / UpdateRate.Value)
+					task.wait(1 / math.clamp(UpdateRate.Value, 1, 60))
 					if not Breaker.Enabled then break end
 					if entitylib.isAlive then
 						local localPosition = entitylib.character.RootPart.Position
@@ -16648,7 +16654,7 @@ run(function()
 						end
 					end
 
-					task.wait(1 / UpdateRate.Value)
+					task.wait(1 / math.clamp(UpdateRate.Value, 1, 60))
 				until not KaidaKillaura.Enabled
 
 				isChargingAbility = false
@@ -17541,7 +17547,11 @@ run(function()
                 end)
                 table.insert(connections, playerRemovingConn)
 
-                renderConn = game:GetService("RunService").RenderStepped:Connect(function()
+                local _ogLastUpdate = 0
+                renderConn = game:GetService("RunService").Heartbeat:Connect(function()
+                    local _now = tick()
+                    if _now - _ogLastUpdate < 0.1 then return end
+                    _ogLastUpdate = _now
                     local myChar = LocalPlayer.Character
                     if not myChar then return end
                     local myHead = myChar:FindFirstChild("Head")
@@ -17771,10 +17781,10 @@ run(function()
         end))
 
         local _mdLastUpdate = 0
-        MetalDetector:Clean(runService.RenderStepped:Connect(function()
+        MetalDetector:Clean(runService.Heartbeat:Connect(function()
             if not ESPToggle.Enabled then return end
             local _now = tick()
-            if _now - _mdLastUpdate < 0.1 then return end
+            if _now - _mdLastUpdate < 0.2 then return end
             _mdLastUpdate = _now
             
             for v, billboard in pairs(Reference) do
@@ -20706,10 +20716,10 @@ run(function()
         end))
         
         local _scLastUpdate = 0
-        StarCollector:Clean(runService.RenderStepped:Connect(function()
+        StarCollector:Clean(runService.Heartbeat:Connect(function()
             if not ESPToggle.Enabled then return end
             local _now = tick()
-            if _now - _scLastUpdate < 0.1 then return end
+            if _now - _scLastUpdate < 0.2 then return end
             _scLastUpdate = _now
             
             for v, billboard in pairs(Reference) do
@@ -22212,7 +22222,7 @@ run(function()
                         placeCheckConnection:Disconnect()
                         placeCheckConnection = nil
                     end
-                    placeCheckConnection = runService.RenderStepped:Connect(function()
+                    placeCheckConnection = runService.Heartbeat:Connect(function()
                         if not _G.gingerLock and entitylib.isAlive and tick() - lastPlaceTime > 0.15 then
                             tryPlaceGumdrop()
                         end
@@ -22286,7 +22296,7 @@ run(function()
             end
 
             if callback and Gingerbread.Enabled then
-                placeCheckConnection = runService.RenderStepped:Connect(function()
+                placeCheckConnection = runService.Heartbeat:Connect(function()
                     if not _G.gingerLock and entitylib.isAlive and tick() - lastPlaceTime > 0.15 then
                         tryPlaceGumdrop()
                     end
@@ -22871,10 +22881,10 @@ run(function()
                 end
                 
                 local _bkLastUpdate = 0
-                Beekeeper:Clean(runService.RenderStepped:Connect(function()
+                Beekeeper:Clean(runService.Heartbeat:Connect(function()
                     if not ESPToggle.Enabled then return end
                     local _now = tick()
-                    if _now - _bkLastUpdate < 0.1 then return end
+                    if _now - _bkLastUpdate < 0.2 then return end
                     _bkLastUpdate = _now
                     
                     for v, billboard in pairs(BeesReference) do
@@ -23477,7 +23487,7 @@ run(function()
 		table.insert(espConnections, RunService.Heartbeat:Connect(function()
 			if not DrillESP.Enabled then return end
 			local now = tick()
-			if now - drillLastUpdate < 0.1 then return end
+			if now - drillLastUpdate < 0.2 then return end
 			drillLastUpdate = now
 			for drill, ref in pairs(Reference) do
 				if drill and drill.Parent then
@@ -24198,8 +24208,12 @@ run(function()
             end
         end))
 
-        Grove:Clean(runService.RenderStepped:Connect(function()
+        local _groveLastUpdate = 0
+        Grove:Clean(runService.Heartbeat:Connect(function()
             if not SpiritESP.Enabled then return end
+            local _now = tick()
+            if _now - _groveLastUpdate < 0.2 then return end
+            _groveLastUpdate = _now
             
             for v, billboard in pairs(Reference) do
                 if not v or not v.Parent then
@@ -33454,7 +33468,7 @@ run(function()
                             end
  
                             if not started then
-                                task.wait(0.01)
+                                task.wait(1 / math.clamp(UpdateRate.Value, 1, 60))
                             end
                         until (not LGKillaura.Enabled) or (not Animation.Enabled)
                     end)
@@ -33511,7 +33525,7 @@ run(function()
                         entitylib.character.RootPart.CFrame = CFrame.lookAt(entitylib.character.RootPart.Position, Vector3.new(vec.X, entitylib.character.RootPart.Position.Y, vec.Z))
                     end
  
-                    task.wait(0.01)
+                    task.wait(1 / math.clamp(UpdateRate.Value, 1, 60))
                 until not LGKillaura.Enabled
             else
                 store.KillauraTarget = nil
