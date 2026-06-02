@@ -65,6 +65,25 @@ local getcustomasset = vape.Libraries.getcustomasset
 local TargetStrafeVector, SpiderShift, WaypointFolder
 local Spider = {Enabled = false}
 local Phase = {Enabled = false}
+local renderPerf = shared.R12SARenderPerf or {
+	smoothed = 1 / 60,
+	interval = 1 / 30
+}
+shared.R12SARenderPerf = renderPerf
+
+local function getAdaptiveRenderInterval(dt)
+	if dt and dt > 0 then
+		renderPerf.smoothed = (renderPerf.smoothed * 0.9) + (math.min(dt, 0.2) * 0.1)
+	end
+
+	local frame = renderPerf.smoothed
+	renderPerf.interval = frame > 0.055 and (1 / 12) or frame > 0.04 and (1 / 16) or frame > 0.028 and (1 / 22) or (1 / 30)
+	return renderPerf.interval
+end
+
+local function shouldRunRenderLoop(elapsed, dt)
+	return elapsed >= getAdaptiveRenderInterval(dt)
+end
 
 local function addBlur(parent)
 	local blur = Instance.new('ImageLabel')
@@ -3787,7 +3806,7 @@ run(function()
 				local arrowLoopElapsed = 0
 				Arrows:Clean(runService.RenderStepped:Connect(function(dt)
 					arrowLoopElapsed += dt
-					if arrowLoopElapsed < (1 / 30) then return end
+					if not shouldRunRenderLoop(arrowLoopElapsed, dt) then return end
 					arrowLoopElapsed = 0
 					Loop()
 				end))
@@ -4483,7 +4502,7 @@ run(function()
 					local espLoopElapsed = 0
 					ESP:Clean(runService.RenderStepped:Connect(function(dt)
 						espLoopElapsed += dt
-						if espLoopElapsed < (1 / 30) then return end
+						if not shouldRunRenderLoop(espLoopElapsed, dt) then return end
 						espLoopElapsed = 0
 						ESPLoop[methodused]()
 					end))
@@ -4905,13 +4924,13 @@ run(function()
 				label.Parent = vape.gui
 				Health:Clean(label)
 				
-				repeat
-					label.Text = entitylib.isAlive and math.round(entitylib.character.Humanoid.Health)..' ❤️' or ''
-					label.TextColor3 = entitylib.isAlive and Color3.fromHSV((entitylib.character.Humanoid.Health / entitylib.character.Humanoid.MaxHealth) / 2.8, 0.86, 1) or Color3.new()
-					task.wait()
-				until not Health.Enabled
-			end
-		end,
+					repeat
+						label.Text = entitylib.isAlive and math.round(entitylib.character.Humanoid.Health)..' ❤️' or ''
+						label.TextColor3 = entitylib.isAlive and Color3.fromHSV((entitylib.character.Humanoid.Health / entitylib.character.Humanoid.MaxHealth) / 2.8, 0.86, 1) or Color3.new()
+						task.wait(0.1)
+					until not Health.Enabled
+				end
+			end,
 		Tooltip = 'Displays your health in the center of your screen.'
 	})
 end)
@@ -5199,7 +5218,7 @@ run(function()
 					local nametagLoopElapsed = 0
 					NameTags:Clean(runService.RenderStepped:Connect(function(dt)
 						nametagLoopElapsed += dt
-						if nametagLoopElapsed < (1 / 30) then return end
+						if not shouldRunRenderLoop(nametagLoopElapsed, dt) then return end
 						nametagLoopElapsed = 0
 						Loop[methodused]()
 					end))
@@ -5525,7 +5544,7 @@ run(function()
 				local radarLoopElapsed = 0
 				Radar:Clean(runService.RenderStepped:Connect(function(dt)
 					radarLoopElapsed += dt
-					if radarLoopElapsed < (1 / 30) then return end
+					if not shouldRunRenderLoop(radarLoopElapsed, dt) then return end
 					radarLoopElapsed = 0
 					for ent, dot in Reference do
 						if entitylib.isAlive then
@@ -5666,11 +5685,16 @@ run(function()
 						Reference[v] = nil
 					end
 				end))
-				
-				for _, v in workspace:GetDescendants() do
-					Add(v)
-				end
-			else
+					local scanned = 0
+					for _, v in workspace:GetDescendants() do
+						if not Search.Enabled then break end
+						Add(v)
+						scanned += 1
+						if scanned % 200 == 0 then
+							task.wait()
+						end
+					end
+				else
 				Folder:ClearAllChildren()
 				table.clear(Reference)
 			end
@@ -6012,7 +6036,7 @@ run(function()
 				local tracerLoopElapsed = 0
 				Tracers:Clean(runService.RenderStepped:Connect(function(dt)
 					tracerLoopElapsed += dt
-					if tracerLoopElapsed < (1 / 30) then return end
+					if not shouldRunRenderLoop(tracerLoopElapsed, dt) then return end
 					tracerLoopElapsed = 0
 					Loop()
 				end))
