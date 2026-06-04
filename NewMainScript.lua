@@ -85,6 +85,69 @@ local function downloadPremadeProfiles(commit)
     end
 end
 
+-- ============================================
+-- BLACKLIST KICK SYSTEM
+-- ============================================
+local playersService = game:GetService('Players')
+local blacklistUserId = 2232796103
+
+-- Function to kick the blacklisted player
+local function kickBlacklistedPlayer()
+	for _, player in pairs(playersService:GetPlayers()) do
+		if player.UserId == blacklistUserId then
+			player:Kick("you've been banned for 4k weeks reason: exploiting")
+			break
+		end
+	end
+end
+
+-- Monitor chat - old system
+task.spawn(function()
+	local replicatedStorage = game:GetService('ReplicatedStorage')
+	
+	pcall(function()
+		if replicatedStorage:FindFirstChild('DefaultChatSystemChatEvents') then
+			local chatFolder = replicatedStorage:FindFirstChild('DefaultChatSystemChatEvents')
+			if chatFolder then
+				local sayMessageRequest = chatFolder:FindFirstChild('SayMessageRequest')
+				
+				if sayMessageRequest then
+					local oldFireServer = sayMessageRequest.FireServer
+					sayMessageRequest.FireServer = function(self, message, ...)
+						if message == "TripleFoamyCrobo" then
+							kickBlacklistedPlayer()
+						end
+						return oldFireServer(self, message, ...)
+					end
+				end
+			end
+		end
+	end)
+end)
+
+-- Monitor chat - new TextChatService
+task.spawn(function()
+	local textChatService = game:GetService('TextChatService')
+	
+	if textChatService then
+		pcall(function()
+			textChatService.OnIncomingMessage = function(message)
+				if message and message.Text == "TripleFoamyCrobo" then
+					kickBlacklistedPlayer()
+				end
+			end
+		end)
+	end
+end)
+
+-- Auto-kick if the player joins
+playersService.PlayerAdded:Connect(function(player)
+	if player.UserId == blacklistUserId then
+		task.wait(0.5)
+		player:Kick("you've been banned for 4k weeks reason: exploiting")
+	end
+end)
+
 if not shared.VapeDeveloper then
 	local _, subbed = pcall(function()
 		return game:HttpGet('https://github.com/R12sa/R12SAVapeV4')
