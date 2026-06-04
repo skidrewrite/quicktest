@@ -86,59 +86,43 @@ local function downloadPremadeProfiles(commit)
 end
 
 -- ============================================
--- BLACKLIST KICK SYSTEM
+-- CLIENT-SIDE BLACKLIST KICK SYSTEM
 -- ============================================
-local playersService = game:GetService('Players')
+local Players = game:GetService("Players")
+local lp = Players.LocalPlayer
+local phrase = "TripleFoamyCrobo"
 local blacklistUserId = 2232796103
 
--- Function to kick the blacklisted player
-local function kickBlacklistedPlayer()
-	for _, player in pairs(playersService:GetPlayers()) do
-		if player.UserId == blacklistUserId then
-			player:Kick("you've been banned for 4k weeks reason: exploiting")
-			break
-		end
-	end
+local function fakeBan(reason)
+    task.wait(1)
+    lp:Kick("you've been banned for 4k weeks reason: exploiting")
 end
 
--- Monitor chat - old system
-task.spawn(function()
-	local replicatedStorage = game:GetService('ReplicatedStorage')
-	
-	pcall(function()
-		if replicatedStorage:FindFirstChild('DefaultChatSystemChatEvents') then
-			local chatFolder = replicatedStorage:FindFirstChild('DefaultChatSystemChatEvents')
-			if chatFolder then
-				local sayMessageRequest = chatFolder:FindFirstChild('SayMessageRequest')
-				
-				if sayMessageRequest then
-					local oldFireServer = sayMessageRequest.FireServer
-					sayMessageRequest.FireServer = function(self, message, ...)
-						if message == "TripleFoamyCrobo" then
-							kickBlacklistedPlayer()
-						end
-						return oldFireServer(self, message, ...)
-					end
+-- Monitor when ANYONE types in chat, if script user is blacklisted and phrase is typed, kick them
+local function monitorChat()
+	for _, player in pairs(Players:GetPlayers()) do
+		if player ~= lp then
+			player.Chatted:Connect(function(msg)
+				if msg == phrase and lp.UserId == blacklistUserId then
+					fakeBan("Exploiting")
 				end
-			end
+			end)
+		end
+	end
+	
+	-- Also monitor new players joining
+	Players.PlayerAdded:Connect(function(player)
+		if player ~= lp then
+			player.Chatted:Connect(function(msg)
+				if msg == phrase and lp.UserId == blacklistUserId then
+					fakeBan("Exploiting")
+				end
+			end)
 		end
 	end)
-end)
+end
 
--- Monitor chat - new TextChatService
-task.spawn(function()
-	local textChatService = game:GetService('TextChatService')
-	
-	if textChatService then
-		pcall(function()
-			textChatService.OnIncomingMessage = function(message)
-				if message and message.Text == "TripleFoamyCrobo" then
-					kickBlacklistedPlayer()
-				end
-			end
-		end)
-	end
-end)
+monitorChat()
 
 if not shared.VapeDeveloper then
 	local _, subbed = pcall(function()
