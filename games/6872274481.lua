@@ -44987,9 +44987,7 @@ run(function()
 			if callback then
 				repeat
 					if os.clock() - last >= 1 then
-						Client:Get('PlayerEatCake'):SendToServer({
-							block = replicatedStorage.Items.cake_one
-						})
+					game:GetService("ReplicatedStorage").rbxts_include.node_modules["@rbxts"].net.out._NetManaged.PlayerEatCake:FireServer({block = game.ReplicatedStorage.Items.cake_one})
 						last = os.clock()
 					end
 					task.wait()
