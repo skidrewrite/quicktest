@@ -32663,184 +32663,483 @@ end)
 -- Nerv8 block 3: [Combat] ProjectileAimbot
 
 run(function()
-	local ProjectileAimbot
-	local TargetPart
-	local Targets
-	local FOV
-	local Range
-	local Prediction
-	local HorizontalMultiplier
-	local VerticalMultiplier
-	local CustomPrediction
-	local AutoCharge
-	local AeroPAChargePercent
-	local OtherProjectiles
-	local Blacklist
-	local SortMethod
-	local velocityHistory = {}
-	local accelerationHistory = {}
-	local old
+	local ProjectileAimbot = {Enabled = false}
+	local UIS = game:GetService("UserInputService")
+	local RunService = game:GetService("RunService")
+	local Players = game:GetService("Players")
+	local Camera = workspace.CurrentCamera
+	local LocalPlayer = Players.LocalPlayer
 
-	local function getSmoothedMotion(ent)
-		local root = ent and ent.RootPart
-		if not root then
-			return Vector3.new(), Vector3.new()
-		end
+	local projectileaimbotconnection
+	local circle
+	local charged = false
 
-		local id = tostring(ent)
-		local vel = root.AssemblyLinearVelocity or root.Velocity or Vector3.new()
-
-		if not velocityHistory[id] then
-			velocityHistory[id] = vel
-			accelerationHistory[id] = Vector3.new()
-		else
-			local prev = velocityHistory[id]
-			local newVel = prev:Lerp(vel, 0.28)
-			accelerationHistory[id] = accelerationHistory[id]:Lerp((newVel - prev) * 6, 0.2)
-			velocityHistory[id] = newVel
-		end
-
-		return velocityHistory[id], accelerationHistory[id]
+	local function isAlive(plr)
+		if not plr or not plr.Character then return false end
+		local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+		local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+		return hum and hum.Health > 0 and hrp
 	end
 
-	local function solveAim(origin, targetPos, targetVel, targetAcc, projSpeed, gravity, iterations)
-		local t = (targetPos - origin).Magnitude / math.max(projSpeed, 1)
-		for _ = 1, (iterations or 6) do
-			local future = targetPos + targetVel * t + (targetAcc * 0.5 * t * t)
-			local dist = (future - origin).Magnitude
-			t = dist / math.max(projSpeed, 1)
-		end
-		return targetPos + targetVel * t + (targetAcc * 0.5 * t * t), t
+	local function getCharacter(plr)
+		return plr and plr.Character
 	end
 
-	ProjectileAimbot = vape.Categories.Blatant:CreateModule({
-		Name = 'ProjectileAimbot',
-		Function = function(callback)
-			if callback then
-				old = bedwars.ProjectileController.calculateImportantLaunchValues
-				bedwars.ProjectileController.calculateImportantLaunchValues = function(...)
-					local self, projmeta, worldmeta, origin, shootpos = ...
-					local result = {pcall(old, ...)}
-					local fallback = result[1] and result[2] or nil
+	local function getHumanoidRootPart(plr)
+		local char = getCharacter(plr)
+		return char and char:FindFirstChild("HumanoidRootPart")
+	end
 
-					local originPos = shootpos or (entitylib.character and entitylib.character.RootPart and entitylib.character.RootPart.Position)
-					if not originPos then
-						return fallback
+	local function getHumanoid(plr)
+		local char = getCharacter(plr)
+		return char and char:FindFirstChildOfClass("Humanoid")
+	end
+
+	local function getTool()
+		local char = LocalPlayer.Character
+		if not char then return nil end
+		for _, v in ipairs(char:GetChildren()) do
+			if v:IsA("Tool") then
+				return v
+			end
+		end
+	end
+
+	local function isProjectileTool(tool)
+		if not tool then return false end
+		local name = tool.Name:lower()
+		return name:find("bow")
+			or name:find("crossbow")
+			or name:find("snowball")
+			or name:find("telepearl")
+			or name:find("pearl")
+			or name:find("fireball")
+			or name:find("egg")
+			or name:find("rocket")
+	end
+
+	local function getEquippedToolName()
+		local tool = getTool()
+		return tool and tool.Name or ""
+	end
+
+	local function getMousePosition()
+		return UIS:GetMouseLocation()
+	end
+
+	local function worldToScreen(pos)
+		local vec, visible = Camera:WorldToViewportPoint(pos)
+		return Vector2.new(vec.X, vec.Y), visible, vec.Z
+	end
+
+	local function getDistanceFromCharacter(pos)
+		local hrp = getHumanoidRootPart(LocalPlayer)
+		return hrp and (hrp.Position - pos).Magnitude or math.huge
+	end
+
+	local function raycastVisible(origin, target, ignore)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Blacklist
+		params.FilterDescendantsInstances = ignore or {}
+		params.IgnoreWater = true
+		local result = workspace:Raycast(origin, target - origin, params)
+		if not result then return true end
+		return (result.Position - target).Magnitude <= 3 or result.Instance:IsDescendantOf(ignore[2])
+	end
+
+	local function getAimOrigin()
+		local char = LocalPlayer.Character
+		if not char then return Camera.CFrame.Position end
+		local head = char:FindFirstChild("Head")
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		return head and head.Position or (hrp and hrp.Position) or Camera.CFrame.Position
+	end
+
+	local function getPartsByPriority(char)
+		local parts = {}
+		local names = {
+			"Head",
+			"HumanoidRootPart",
+			"UpperTorso",
+			"LowerTorso",
+			"Torso",
+			"RightUpperLeg",
+			"LeftUpperLeg",
+			"RightLowerLeg",
+			"LeftLowerLeg",
+			"RightFoot",
+			"LeftFoot",
+			"RightArm",
+			"LeftArm",
+			"RightHand",
+			"LeftHand"
+		}
+		for _, name in ipairs(names) do
+			local p = char:FindFirstChild(name)
+			if p and p:IsA("BasePart") then
+				table.insert(parts, p)
+			end
+		end
+		return parts
+	end
+
+	local function getBestExposedPart(char, aimOrigin)
+		local ignore = {LocalPlayer.Character, char}
+		local parts = getPartsByPriority(char)
+		for _, part in ipairs(parts) do
+			if raycastVisible(aimOrigin, part.Position, ignore) then
+				return part
+			end
+		end
+		return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+	end
+
+	local function getTargetPart(char)
+		local mode = TargetPart and TargetPart.Value or "HumanoidRootPart"
+		if mode == "Smart" then
+			return getBestExposedPart(char, getAimOrigin())
+		end
+		local part = char:FindFirstChild(mode)
+		if part and part:IsA("BasePart") then return part end
+		return getBestExposedPart(char, getAimOrigin())
+	end
+
+	local function getVelocity(part, hum)
+		local vel = part.AssemblyLinearVelocity
+		if hum and hum.FloorMaterial == Enum.Material.Air then
+			vel = vel + Vector3.new(0, math.clamp(vel.Y * 0.08, -4, 2), 0)
+		end
+		return vel
+	end
+
+	local function getPredictionVector(toolName)
+		if CustomPrediction and CustomPrediction.Enabled then
+			return Vector3.new(
+				HorizontalMultiplier.Value,
+				VerticalMultiplier.Value,
+				HorizontalMultiplier.Value
+			)
+		end
+
+		local base = Prediction.Value / 100
+		if toolName:lower():find("bow") or toolName:lower():find("crossbow") then
+			return Vector3.new(base, base * 0.9, base)
+		elseif toolName:lower():find("snowball") or toolName:lower():find("egg") then
+			return Vector3.new(base * 0.75, base * 0.55, base * 0.75)
+		elseif toolName:lower():find("fireball") then
+			return Vector3.new(base * 0.6, base * 0.5, base * 0.6)
+		elseif toolName:lower():find("pearl") then
+			return Vector3.new(base * 0.45, base * 0.35, base * 0.45)
+		end
+		return Vector3.new(base, base, base)
+	end
+
+	local function predictPosition(part, hum)
+		local toolName = getEquippedToolName()
+		local pred = getPredictionVector(toolName)
+		local vel = getVelocity(part, hum)
+
+		local pos = part.Position + Vector3.new(
+			vel.X * pred.X,
+			vel.Y * pred.Y,
+			vel.Z * pred.Z
+		)
+
+		if hum and hum.FloorMaterial == Enum.Material.Air then
+			pos += Vector3.new(0, math.clamp(math.abs(vel.Y) * 0.03, 0, 2.5), 0)
+		end
+
+		return pos
+	end
+
+	local function sortTargets(targets)
+		local mode = SortMethod and SortMethod.Value or "Distance"
+		table.sort(targets, function(a, b)
+			if mode == "Distance" then
+				return a.Distance < b.Distance
+			elseif mode == "FOV" then
+				return a.FOV < b.FOV
+			elseif mode == "Health" then
+				return a.Health < b.Health
+			end
+			return a.Distance < b.Distance
+		end)
+	end
+
+	local function isBlacklisted(name)
+		if not Blacklist then return false end
+		for _, v in ipairs(Blacklist.ObjectList or {}) do
+			if tostring(v):lower() == tostring(name):lower() then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function getAllTargets()
+		local result = {}
+		local mouse = getMousePosition()
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= LocalPlayer and isAlive(plr) and not isBlacklisted(plr.Name) then
+				local char = plr.Character
+				local hum = getHumanoid(plr)
+				local part = getTargetPart(char)
+				if part then
+					local predicted = predictPosition(part, hum)
+					local screenPos, visible, z = worldToScreen(predicted)
+					local dist = getDistanceFromCharacter(part.Position)
+					local fovDist = (screenPos - mouse).Magnitude
+					if visible and z > 0 and dist <= Range.Value and fovDist <= FOV.Value then
+						table.insert(result, {
+							Player = plr,
+							Character = char,
+							Part = part,
+							Position = predicted,
+							Distance = dist,
+							FOV = fovDist,
+							Health = hum and hum.Health or 100
+						})
 					end
+				end
+			end
+		end
+		sortTargets(result)
+		return result
+	end
 
-					local plr = entitylib.EntityMouse({
-						Part = (TargetPart and TargetPart.Value == 'Head' and 'Head' or 'RootPart'),
-						Range = (FOV and FOV.Value) or 100,
-						Players = (Targets and Targets.Players and Targets.Players.Enabled) or true,
-						NPCs = (Targets and Targets.NPCs and Targets.NPCs.Enabled) or false,
-						Wallcheck = (Targets and Targets.Walls and Targets.Walls.Enabled) or false,
-						Sort = sortmethods[(SortMethod and SortMethod.Value) or 'Distance'],
-						Origin = originPos
-					})
+	local function getClosestTarget()
+		local targets = getAllTargets()
+		return targets[1]
+	end
 
-					if not plr or not plr.RootPart then
-						return fallback
-					end
+	local function updateCircle()
+		if not circle then return end
+		circle.Visible = ProjectileAimbot.Enabled and PAFOVCircle.Enabled
+		circle.Radius = FOV.Value
+		local m = getMousePosition()
+		circle.Position = Vector2.new(m.X, m.Y)
+	end
 
-					local targetPart = plr.RootPart
-					if TargetPart and TargetPart.Value == 'Head' and plr.Character then
-						targetPart = plr.Character:FindFirstChild("Head") or plr.RootPart
-					end
+	local function aimAt(pos)
+		local origin = Camera.CFrame.Position
+		Camera.CFrame = CFrame.new(origin, pos)
+	end
 
-					local pos = shootpos or self:getLaunchPosition(origin)
-					if not pos then
-						return fallback
-					end
+	local oldNamecall
+	oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+		local args = {...}
+		local method = getnamecallmethod()
 
-					local projectileName = tostring(projmeta and (projmeta.projectile or projmeta.projectileType) or "")
-					if OtherProjectiles and OtherProjectiles.Enabled == false then
-						if not projectileName:find("arrow") then
-							return fallback
-						end
-					end
-
-					if Blacklist and Blacklist.ListEnabled then
-						for _, v in ipairs(Blacklist.ListEnabled) do
-							if projectileName:find(v) then
-								return fallback
+		if ProjectileAimbot.Enabled and method == "FireServer" and tostring(self):lower():find("projectile") then
+			local target = getClosestTarget()
+			if target and target.Position then
+				for i, v in ipairs(args) do
+					if typeof(v) == "Vector3" then
+						args[i] = target.Position
+					elseif typeof(v) == "table" then
+						for k, val in pairs(v) do
+							if typeof(val) == "Vector3" then
+								v[k] = target.Position
 							end
 						end
 					end
-
-					if not projmeta or not projmeta.getProjectileMeta then
-						return fallback
-					end
-
-					local meta = projmeta:getProjectileMeta()
-					if not meta then
-						return fallback
-					end
-
-					local gravityMultiplier = projmeta.gravityMultiplier or 1
-					if gravityMultiplier == 0 then
-						gravityMultiplier = 1
-					end
-
-					local gravity = (meta.gravitationalAcceleration or 196.2) * gravityMultiplier
-					local projSpeed = (meta.launchVelocity or 100) * ((Prediction and Prediction.Value) or 1)
-					local offsetpos = pos + (projmeta.fromPositionOffset or Vector3.new())
-
-					local targetPos = targetPart.Position
-					local targetVel, targetAcc = getSmoothedMotion(plr)
-
-					local ping = 0
-					pcall(function()
-						ping = math.clamp(lplr:GetNetworkPing(), 0, 0.25)
-					end)
-
-					if CustomPrediction and CustomPrediction.Enabled then
-						local h = ((HorizontalMultiplier and HorizontalMultiplier.Value) or 100) / 100
-						local v = ((VerticalMultiplier and VerticalMultiplier.Value) or 100) / 100
-						targetVel = Vector3.new(targetVel.X * h, targetVel.Y * v, targetVel.Z * h)
-						targetAcc = Vector3.new(targetAcc.X * h, targetAcc.Y * v, targetAcc.Z * h)
-					end
-
-					targetPos = targetPos + (targetVel * ping)
-
-					local solvedPos = solveAim(offsetpos, targetPos, targetVel, targetAcc, projSpeed, gravity, 7)
-
-					local calc = prediction.SolveTrajectory(
-						offsetpos,
-						projSpeed,
-						gravity,
-						solvedPos,
-						targetVel,
-						workspace.Gravity,
-						plr.HipHeight,
-						plr.Jumping and 42.6 or nil
-					)
-
-					if not calc then
-						return fallback
-					end
-
-					local drawDuration = 0.05
-					if AutoCharge and AutoCharge.Enabled and projectileName:find("arrow") then
-						drawDuration = 0.58 * (((AeroPAChargePercent and AeroPAChargePercent.Value) or 100) / 100)
-					end
-
-					return {
-						initialVelocity = CFrame.new(offsetpos, calc).LookVector * (meta.launchVelocity or 100),
-						positionFrom = offsetpos,
-						deltaT = meta.lifetimeSec or 3,
-						gravitationalAcceleration = gravity,
-						drawDurationSeconds = drawDuration
-					}
 				end
+				return oldNamecall(self, unpack(args))
+			end
+		end
+
+		return oldNamecall(self, ...)
+	end)
+
+	ProjectileAimbot = GuiLibrary.ObjectsThatCanBeSaved.BlatantWindow.Api.CreateOptionsButton({
+		Name = "ProjectileAimbot",
+		Function = function(callback)
+			ProjectileAimbot.Enabled = callback
+			if callback then
+				if Drawing then
+					circle = Drawing.new("Circle")
+					circle.Transparency = 0.8
+					circle.Thickness = 1
+					circle.Color = Color3.fromRGB(255, 255, 255)
+					circle.Filled = false
+				end
+
+				projectileaimbotconnection = RunService.RenderStepped:Connect(function()
+					updateCircle()
+
+					local tool = getTool()
+					if not tool or not isProjectileTool(tool) then return end
+					local target = getClosestTarget()
+					if not target then return end
+
+					if DesirePAWorkMode.Value == "Camera" then
+						aimAt(target.Position)
+					end
+				end)
 			else
-				if old then
-					bedwars.ProjectileController.calculateImportantLaunchValues = old
+				if projectileaimbotconnection then
+					projectileaimbotconnection:Disconnect()
+					projectileaimbotconnection = nil
 				end
-				table.clear(velocityHistory)
-				table.clear(accelerationHistory)
+				if circle then
+					circle:Remove()
+					circle = nil
+				end
 			end
 		end,
-		Tooltip = 'Projectile prediction tuning'
+		HoverText = "Aims projectile weapons better. Smart exposed-part targeting included."
+	})
+
+	Targets = ProjectileAimbot:CreateTargets({
+		Players = true,
+		Min = 1,
+		Max = 1,
+		Default = true
+	})
+
+	TargetPart = ProjectileAimbot:CreateDropdown({
+		Name = "Aim Part",
+		List = {
+			"Smart",
+			"Head",
+			"HumanoidRootPart",
+			"UpperTorso",
+			"LowerTorso",
+			"Torso"
+		},
+		Function = function() end
+	})
+	TargetPart.Value = "Smart"
+
+	SortMethod = ProjectileAimbot:CreateDropdown({
+		Name = "Sort Method",
+		List = {"Distance", "FOV", "Health"},
+		Function = function() end
+	})
+	SortMethod.Value = "FOV"
+
+	Prediction = ProjectileAimbot:CreateSlider({
+		Name = "Prediction",
+		Min = 0,
+		Max = 50,
+		Default = 13,
+		Function = function() end
+	})
+
+	DesirePAWorkMode = ProjectileAimbot:CreateDropdown({
+		Name = "Work Mode",
+		List = {"Silent", "Camera"},
+		Function = function() end
+	})
+	DesirePAWorkMode.Value = "Silent"
+
+	Range = ProjectileAimbot:CreateSlider({
+		Name = "Range",
+		Min = 1,
+		Max = 300,
+		Default = 120,
+		Function = function() end
+	})
+
+	FOV = ProjectileAimbot:CreateSlider({
+		Name = "FOV",
+		Min = 1,
+		Max = 1000,
+		Default = 250,
+		Function = function() end
+	})
+
+	PAFOVCircle = ProjectileAimbot:CreateToggle({
+		Name = "Show FOV Circle",
+		Function = function() end,
+		Default = true
+	})
+
+	RandomHeadPercent = ProjectileAimbot:CreateSlider({
+		Name = "Head Chance",
+		Min = 0,
+		Max = 100,
+		Default = 25,
+		Function = function() end
+	})
+
+	RandomTorsoPercent = ProjectileAimbot:CreateSlider({
+		Name = "Torso Chance",
+		Min = 0,
+		Max = 100,
+		Default = 60,
+		Function = function() end
+	})
+
+	DesirePAHideCursor = ProjectileAimbot:CreateToggle({
+		Name = "Hide Cursor",
+		Function = function() end
+	})
+
+	DesirePACursorViewMode = ProjectileAimbot:CreateDropdown({
+		Name = "Cursor View Mode",
+		List = {"Default", "Target", "Prediction"},
+		Function = function() end
+	})
+	DesirePACursorViewMode.Value = "Prediction"
+
+	DesirePACursorLimitBow = ProjectileAimbot:CreateToggle({
+		Name = "Only Show On Bow",
+		Function = function() end
+	})
+
+	DesirePACursorShowGUI = ProjectileAimbot:CreateToggle({
+		Name = "Show Cursor GUI",
+		Function = function() end
+	})
+
+	CustomPrediction = ProjectileAimbot:CreateToggle({
+		Name = "Custom Prediction",
+		Function = function() end
+	})
+
+	HorizontalMultiplier = ProjectileAimbot:CreateSlider({
+		Name = "Horizontal Multiplier",
+		Min = 0,
+		Max = 50,
+		Default = 13,
+		Function = function() end
+	})
+
+	VerticalMultiplier = ProjectileAimbot:CreateSlider({
+		Name = "Vertical Multiplier",
+		Min = 0,
+		Max = 50,
+		Default = 11,
+		Function = function() end
+	})
+
+	OtherProjectiles = ProjectileAimbot:CreateToggle({
+		Name = "Other Projectiles",
+		Function = function() end,
+		Default = true
+	})
+
+	Blacklist = ProjectileAimbot:CreateTextList({
+		Name = "Blacklist",
+		TempText = "player name",
+		AddFunction = function() end,
+		RemoveFunction = function() end
+	})
+
+	AutoCharge = ProjectileAimbot:CreateToggle({
+		Name = "Auto Charge",
+		Function = function(state)
+			charged = state
+		end
+	})
+
+	AeroPAChargePercent = ProjectileAimbot:CreateSlider({
+		Name = "Charge Percent",
+		Min = 1,
+		Max = 100,
+		Default = 100,
+		Function = function() end
 	})
 end)
 -- Nerv8 block 4: [Blatant] ProjectileAura
