@@ -2886,7 +2886,7 @@ run(function()
                 playerFound = findPlayer(label, container)
             end
             if not playerFound then return end
-            if getAccountTier(playerFound) >= 4 and getAccountTier(lplr) == 0 then return end
+
             local myTeam = lplr:GetAttribute('Team')
             local theirTeam = playerFound:GetAttribute('Team')
             if not myTeam or not theirTeam or myTeam == theirTeam then return end
@@ -2948,7 +2948,7 @@ run(function()
             if not userId then return end
             local plr = playersService:GetPlayerByUserId(tonumber(userId))
             if not plr then return end
-            if getAccountTier(plr) >= 4 and getAccountTier(lplr) == 0 then return end
+
             local myTeam = lplr:GetAttribute('Team')
             local theirTeam = plr:GetAttribute('Team')
             if not myTeam or not theirTeam or myTeam == theirTeam then return end
