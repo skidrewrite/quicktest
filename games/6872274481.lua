@@ -43604,6 +43604,10 @@ run(function()
             end
         end
     end
+
+    local function isTeamBed(bed)
+        return bed and bed:GetAttribute('Team'..(lplr:GetAttribute('Team') or -1)..'NoBreak')
+    end
  
     local function getCurrentBlock()
         local item = store.inventory.inventory.hand
@@ -43628,12 +43632,66 @@ run(function()
         end
         return positions
     end
+
+    local function getBedDirection(bed)
+        local cf = bed.CFrame or bed:GetPivot()
+        local size = bed.Size or Vector3.new(3, 1, 6)
+        local axis = size.X > size.Z and cf.RightVector or cf.LookVector
+
+        if math.abs(axis.X) > math.abs(axis.Z) then
+            return Vector3.new(axis.X >= 0 and 3 or -3, 0, 0)
+        end
+        return Vector3.new(0, 0, axis.Z >= 0 and 3 or -3)
+    end
+
+    local function getBedFootprint(bed)
+        local footprint, seen = {}, {}
+
+        local function add(pos)
+            local blockpos = bedwars.BlockController:getBlockPosition(pos)
+            local key = tostring(blockpos)
+            if not seen[key] then
+                seen[key] = true
+                table.insert(footprint, blockpos * 3)
+            end
+        end
+
+        add(bed.Position)
+        for _, other in pairs(collectionService:GetTagged('bed')) do
+            if other ~= bed and isTeamBed(other) and (other.Position - bed.Position).Magnitude <= 7 then
+                add(other.Position)
+            end
+        end
+
+        if #footprint < 2 then
+            local dir = getBedDirection(bed)
+            add(bed.Position + dir)
+            add(bed.Position - dir)
+        end
+
+        return footprint
+    end
+
+    local function getProtectionPositions(bed, layer)
+        local positions, seen = {}, {}
+        for _, bedpos in pairs(getBedFootprint(bed)) do
+            for _, pos in pairs(getPyramid(layer, 3)) do
+                local blockpos = bedwars.BlockController:getBlockPosition(bedpos + pos)
+                local key = tostring(blockpos)
+                if not seen[key] then
+                    seen[key] = true
+                    table.insert(positions, blockpos * 3)
+                end
+            end
+        end
+        return positions
+    end
  
     local function findBrokenPositions(bed)
         local broken = {}
         for i = 0, currentLayer do
-            for _, pos in pairs(getPyramid(i, 3)) do
-                if not getPlacedBlock(bed.Position + pos) then
+            for _, pos in pairs(getProtectionPositions(bed, i)) do
+                if not getPlacedBlock(pos) then
                     table.insert(broken, pos)
                 end
             end
@@ -43653,14 +43711,14 @@ run(function()
                         if #brokenPositions > 0 then
                             for _, pos in pairs(brokenPositions) do
                                 if not BedProtector.Enabled then break end
-                                bedwars.placeBlock(bed.Position + pos, blockType)
+                                bedwars.placeBlock(pos, blockType)
                                 task.wait(0.01)
                             end
                         else
                             currentLayer = currentLayer + 1
-                            for _, pos in pairs(getPyramid(currentLayer, 3)) do
+                            for _, pos in pairs(getProtectionPositions(bed, currentLayer)) do
                                 if not BedProtector.Enabled then break end
-                                bedwars.placeBlock(bed.Position + pos, blockType)
+                                bedwars.placeBlock(pos, blockType)
                                 task.wait(0.01)
                             end
                         end
