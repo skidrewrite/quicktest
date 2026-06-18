@@ -44545,3 +44545,152 @@ run(function()
 		end
 	})
 end)
+
+run(function()
+	local LootGrabber
+	local Range
+	local Delay
+	local Network
+	local GrabAll
+	local ItemToggles = {}
+	local lastGrab = 0
+
+	local function getDropPart(drop)
+		if not drop then return end
+		if drop:IsA('BasePart') then return drop end
+		if drop:IsA('Model') then
+			return drop:FindFirstChild('Handle') or drop.PrimaryPart
+		end
+		return drop:FindFirstChild('Handle')
+	end
+
+	local function isWantedDrop(drop)
+		if GrabAll.Enabled then return true end
+		local name = tostring(drop and drop.Name or ''):lower()
+		for itemName, toggle in pairs(ItemToggles) do
+			if toggle.Enabled and name:find(itemName, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function playPickupSound(drop, part)
+		if not bedwars.SoundList then return end
+		bedwars.SoundManager:playSound(bedwars.SoundList.PICKUP_ITEM_DROP)
+
+		local itemMeta = bedwars.ItemMeta[drop.Name]
+		local sound = itemMeta and itemMeta.pickUpOverlaySound
+		if sound then
+			bedwars.SoundManager:playSound(sound, {
+				position = part.Position,
+				volumeMultiplier = 0.9
+			})
+		end
+	end
+
+	local function moveDrop(drop, part, position)
+		if not Network.Enabled then return end
+		pcall(function()
+			if drop:IsA('Model') then
+				drop:PivotTo(CFrame.new(position))
+			else
+				part.CFrame = CFrame.new(position)
+			end
+			part.AssemblyLinearVelocity = Vector3.zero
+			part.AssemblyAngularVelocity = Vector3.zero
+		end)
+	end
+
+	LootGrabber = vape.Categories.Utility:CreateModule({
+		Name = 'LootGrabber',
+		Function = function(callback)
+			if callback then
+				local drops = collection('ItemDrop', LootGrabber)
+				repeat task.wait() until store.matchState ~= 0 or (not LootGrabber.Enabled)
+				if not LootGrabber.Enabled then return end
+
+				repeat
+					if entitylib.isAlive then
+						local root = entitylib.character.RootPart
+						local localPosition = root.Position
+						local rangeSquared = Range.Value * Range.Value
+						local delaySeconds = Delay.Value / 1000
+						local currentTime = tick()
+
+						for _, drop in pairs(drops) do
+							if (currentTime - lastGrab) < delaySeconds then break end
+							if (currentTime - (drop:GetAttribute('ClientDropTime') or 0)) < 0.25 then continue end
+							if not isWantedDrop(drop) then continue end
+
+							local part = getDropPart(drop)
+							if not part then continue end
+
+							local offset = part.Position - localPosition
+							local distanceSquared = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z
+							if distanceSquared > rangeSquared then continue end
+
+							moveDrop(drop, part, localPosition - Vector3.new(0, 3, 0))
+							bedwars.Client:Get(remotes.PickupItem):CallServerAsync({
+								itemDrop = drop
+							}):andThen(function(suc)
+								if suc then
+									playPickupSound(drop, part)
+								end
+							end)
+							lastGrab = tick()
+						end
+					end
+					task.wait(0.05)
+				until not LootGrabber.Enabled
+			else
+				lastGrab = 0
+			end
+		end,
+		Tooltip = 'Grabs nearby or far loot from your current position'
+	})
+
+	Range = LootGrabber:CreateSlider({
+		Name = 'Range',
+		Min = 10,
+		Max = 300,
+		Default = 120,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+	Delay = LootGrabber:CreateSlider({
+		Name = 'Grab Delay',
+		Min = 0,
+		Max = 500,
+		Default = 50,
+		Tooltip = 'Delay between grabbing loot (milliseconds)',
+		Suffix = 'ms'
+	})
+	Network = LootGrabber:CreateToggle({
+		Name = 'Pull To You',
+		Default = true,
+		Tooltip = 'Moves the drop to your current position before picking it up'
+	})
+	GrabAll = LootGrabber:CreateToggle({
+		Name = 'Grab All',
+		Default = false,
+		Tooltip = 'Grab every item drop instead of only selected resources'
+	})
+	ItemToggles.iron = LootGrabber:CreateToggle({
+		Name = 'Iron',
+		Default = true
+	})
+	ItemToggles.diamond = LootGrabber:CreateToggle({
+		Name = 'Diamond',
+		Default = true
+	})
+	ItemToggles.emerald = LootGrabber:CreateToggle({
+		Name = 'Emerald',
+		Default = true
+	})
+	ItemToggles.gold = LootGrabber:CreateToggle({
+		Name = 'Gold',
+		Default = true
+	})
+end)
