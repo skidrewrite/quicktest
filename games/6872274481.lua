@@ -44551,9 +44551,11 @@ run(function()
 	local Range
 	local Delay
 	local Network
+	local ServerCheck
 	local GrabAll
 	local ItemToggles = {}
 	local lastGrab = 0
+	local grabbing = {}
 
 	local function getDropPart(drop)
 		if not drop then return end
@@ -44602,6 +44604,62 @@ run(function()
 		end)
 	end
 
+	local function requestPickup(drop, part)
+		bedwars.Client:Get(remotes.PickupItem):CallServerAsync({
+			itemDrop = drop
+		}):andThen(function(suc)
+			if suc then
+				playPickupSound(drop, part)
+			end
+		end)
+
+		if part ~= drop then
+			bedwars.Client:Get(remotes.PickupItem):CallServerAsync({
+				itemDrop = part
+			})
+		end
+	end
+
+	local function pickupDrop(drop, part, root)
+		if grabbing[drop] then return end
+		grabbing[drop] = true
+		local originalPosition = part.Position
+
+		task.spawn(function()
+			for _ = 1, 5 do
+				if not LootGrabber.Enabled or not entitylib.isAlive or not root.Parent or not drop.Parent or not part.Parent then break end
+
+				local pickupPos = root.Position - Vector3.new(0, math.max(entitylib.character.HipHeight or 2, 2), 0)
+				moveDrop(drop, part, pickupPos)
+
+				if firetouchinterest then
+					pcall(function()
+						firetouchinterest(root, part, 0)
+						firetouchinterest(root, part, 1)
+					end)
+				end
+
+				requestPickup(drop, part)
+
+				if ServerCheck.Enabled and not isnetworkowner(part) then
+					local old = root.CFrame
+					pcall(function()
+						root.CFrame = CFrame.new(originalPosition + Vector3.new(0, 2, 0))
+					end)
+					task.wait()
+					requestPickup(drop, part)
+					pcall(function()
+						root.CFrame = old
+					end)
+				end
+
+				task.wait(0.08)
+			end
+
+			grabbing[drop] = nil
+		end)
+	end
+
 	LootGrabber = vape.Categories.Utility:CreateModule({
 		Name = 'LootGrabber',
 		Function = function(callback)
@@ -44630,14 +44688,7 @@ run(function()
 							local distanceSquared = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z
 							if distanceSquared > rangeSquared then continue end
 
-							moveDrop(drop, part, localPosition - Vector3.new(0, 3, 0))
-							bedwars.Client:Get(remotes.PickupItem):CallServerAsync({
-								itemDrop = drop
-							}):andThen(function(suc)
-								if suc then
-									playPickupSound(drop, part)
-								end
-							end)
+							pickupDrop(drop, part, root)
 							lastGrab = tick()
 						end
 					end
@@ -44645,6 +44696,7 @@ run(function()
 				until not LootGrabber.Enabled
 			else
 				lastGrab = 0
+				table.clear(grabbing)
 			end
 		end,
 		Tooltip = 'Grabs nearby or far loot from your current position'
@@ -44671,6 +44723,11 @@ run(function()
 		Name = 'Pull To You',
 		Default = true,
 		Tooltip = 'Moves the drop to your current position before picking it up'
+	})
+	ServerCheck = LootGrabber:CreateToggle({
+		Name = 'Server Check',
+		Default = true,
+		Tooltip = 'Briefly satisfies server pickup distance checks for far loot'
 	})
 	GrabAll = LootGrabber:CreateToggle({
 		Name = 'Grab All',
