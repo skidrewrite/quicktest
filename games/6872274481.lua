@@ -45326,3 +45326,275 @@ run(function()
 		Default = true
 	})
 end)
+
+run(function()
+	local KillauraV2
+	local Targets
+	local SwingRange
+	local AttackRange
+	local ChargeTime
+	local HitRate
+	local UpdateRate
+	local MaxTargets
+	local Sort
+	local AttackMode
+	local SwitchDelay
+	local AngleSlider
+	local Mouse
+	local GUI
+	local NoSwing
+	local Face
+	local AttackableCheck
+	local attackRemote
+	local switchIndex = 1
+	local lastSwitch = 0
+	local lastEffect = 0
+	local targetHitTimes = {}
+
+	local function getAuraSword()
+		local sword = store.hand.toolType == 'sword' and store.hand or store.tools.sword
+		if not sword or not sword.tool then return end
+		local meta = bedwars.ItemMeta[sword.tool.Name]
+		if not meta or not meta.sword then return end
+		return sword, meta
+	end
+
+	local function canRunAura()
+		if not entitylib.isAlive then return false end
+		if Mouse.Enabled and not inputService:IsMouseButtonPressed(0) then return false end
+		if GUI.Enabled and bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then return false end
+		if bedwars.DaoController and bedwars.DaoController.chargingMaid then return false end
+		return true
+	end
+
+	local function resolveAuraTargets(targets)
+		if #targets <= 1 then return targets end
+		if AttackMode.Value == 'Multi' then
+			return targets
+		end
+		if AttackMode.Value == 'Switch' then
+			local now = tick()
+			if now - lastSwitch >= SwitchDelay.Value then
+				switchIndex += 1
+				if switchIndex > #targets then
+					switchIndex = 1
+				end
+				lastSwitch = now
+			end
+			return {targets[math.clamp(switchIndex, 1, #targets)]}
+		end
+		return {targets[1]}
+	end
+
+	local function insideAuraAngle(root, target)
+		local delta = (target.RootPart.Position - root.Position) * Vector3.new(1, 0, 1)
+		if delta.Magnitude < 0.01 then return true end
+		local facing = root.CFrame.LookVector * Vector3.new(1, 0, 1)
+		if facing.Magnitude < 0.01 then return true end
+		local dot = math.clamp(facing.Unit:Dot(delta.Unit), -1, 1)
+		return math.acos(dot) <= math.rad(AngleSlider.Value) * 0.5
+	end
+
+	local function sendAuraAttack(sword, target, selfPos)
+		local actualRoot = target.Character and target.Character.PrimaryPart or target.RootPart
+		if not actualRoot or not attackRemote then return end
+
+		local targetPos = actualRoot.Position
+		local delta = targetPos - selfPos
+		local distance = delta.Magnitude
+		if distance > AttackRange.Value then return end
+		if AttackableCheck.Enabled and not bedwars.SwordController:getTargetInRegion(AttackRange.Value * 3, 0) then return end
+		local targetKey = target.Player or target.Character or target
+		local now = tick()
+		if now - (targetHitTimes[targetKey] or 0) < (1 / math.max(HitRate.Value, 1)) then return end
+
+		local dir = CFrame.lookAt(selfPos, targetPos).LookVector
+		local attackPos = selfPos + dir * math.max(distance - 14.399, 0)
+
+		store.attackReach = (distance * 100) // 1 / 100
+		store.attackReachUpdate = tick() + 1
+		bedwars.SwordController.lastAttack = workspace:GetServerTimeNow()
+		bedwars.SwordController.lastSwingServerTime = workspace:GetServerTimeNow() - 0.025
+		targetHitTimes[targetKey] = now
+
+		attackRemote:SendToServer({
+			weapon = sword.tool,
+			chargedAttack = {chargeRatio = 0},
+			entityInstance = target.Character,
+			validate = {
+				raycast = {
+					cameraPosition = {value = attackPos + Vector3.new(0, 2, 0)},
+					cursorDirection = {value = dir}
+				},
+				targetPosition = {value = targetPos},
+				selfPosition = {value = attackPos + Vector3.new(0, 1, 0)}
+			}
+		})
+	end
+
+	local function cleanupAura()
+		Attacking = false
+		store.KillauraTarget = nil
+		table.clear(targetHitTimes)
+		pcall(function()
+			bedwars.SwordController.disableSwingState = false
+			bedwars.SwordController.isSwinging = false
+			bedwars.SwordController:toggleSwordSwing(true)
+		end)
+	end
+
+	KillauraV2 = vape.Categories.Blatant:CreateModule({
+		Name = 'KillauraV2',
+		Function = function(callback)
+			if callback then
+				attackRemote = bedwars.Client:Get(remotes.AttackEntity)
+				repeat
+					Attacking = false
+					store.KillauraTarget = nil
+
+					if canRunAura() then
+						local sword, meta = getAuraSword()
+						if sword then
+							switchItem(sword.tool, 0)
+							local root = entitylib.character.RootPart
+							local targets = resolveAuraTargets(entitylib.AllPosition({
+								Range = SwingRange.Value,
+								Wallcheck = Targets.Walls.Enabled or nil,
+								Part = 'RootPart',
+								Players = Targets.Players.Enabled,
+								NPCs = Targets.NPCs.Enabled,
+								Limit = MaxTargets.Value,
+								Sort = sortmethods[Sort.Value]
+							}))
+
+							for _, target in targets do
+								if target.RootPart and insideAuraAngle(root, target) then
+									Attacking = true
+									store.KillauraTarget = target
+									targetinfo.Targets[target] = tick() + 1
+
+									if Face.Enabled then
+										local pos = target.RootPart.Position * Vector3.new(1, 0, 1)
+										root.CFrame = CFrame.lookAt(root.Position, Vector3.new(pos.X, root.Position.Y + 0.001, pos.Z))
+									end
+
+									if not NoSwing.Enabled and tick() - lastEffect >= math.max(ChargeTime.Value, 0.045) then
+										lastEffect = tick()
+										pcall(function()
+											bedwars.SwordController:playSwordEffect(meta, false)
+											if meta.displayName and meta.displayName:find(' Scythe') then
+												bedwars.ScytheController:playLocalAnimation()
+											end
+										end)
+									end
+
+									sendAuraAttack(sword, target, root.Position)
+								end
+							end
+						end
+					end
+
+					task.wait(math.max(1 / UpdateRate.Value, 0.004))
+				until not KillauraV2.Enabled
+				cleanupAura()
+			else
+				cleanupAura()
+			end
+		end,
+		Tooltip = 'Clean killaura without user-locked ranges or animation hooks'
+	})
+
+	Targets = KillauraV2:CreateTargets({
+		Players = true,
+		NPCs = true
+	})
+
+	local methods = {'Damage', 'Distance'}
+	for i in sortmethods do
+		if not table.find(methods, i) then
+			table.insert(methods, i)
+		end
+	end
+
+	SwingRange = KillauraV2:CreateSlider({
+		Name = 'Swing range',
+		Min = 1,
+		Max = 32,
+		Edit = true,
+		Default = 20,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+	AttackRange = KillauraV2:CreateSlider({
+		Name = 'Attack range',
+		Min = 1,
+		Max = 20,
+		Edit = true,
+		Default = 18,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+	ChargeTime = KillauraV2:CreateSlider({
+		Name = 'Swing time',
+		Min = 0,
+		Max = 1.5,
+		Default = 0.08,
+		Decimal = 100
+	})
+	HitRate = KillauraV2:CreateSlider({
+		Name = 'Hit rate',
+		Min = 1,
+		Max = 36,
+		Default = 30,
+		Suffix = 'hz'
+	})
+	UpdateRate = KillauraV2:CreateSlider({
+		Name = 'Update rate',
+		Min = 1,
+		Max = 240,
+		Default = 180,
+		Suffix = 'hz'
+	})
+	MaxTargets = KillauraV2:CreateSlider({
+		Name = 'Max targets',
+		Min = 1,
+		Max = 8,
+		Default = 4
+	})
+	Sort = KillauraV2:CreateDropdown({
+		Name = 'Target Mode',
+		List = methods
+	})
+	SwitchDelay = KillauraV2:CreateSlider({
+		Name = 'Switch Delay',
+		Min = 0,
+		Max = 3,
+		Default = 0.2,
+		Decimal = 5,
+		Suffix = 's',
+		Visible = false
+	})
+	AttackMode = KillauraV2:CreateDropdown({
+		Name = 'Attack Mode',
+		List = {'Single', 'Multi', 'Switch'},
+		Default = 'Multi',
+		Function = function()
+			if SwitchDelay and SwitchDelay.Object then
+				SwitchDelay.Object.Visible = AttackMode.Value == 'Switch'
+			end
+		end
+	})
+	AngleSlider = KillauraV2:CreateSlider({
+		Name = 'Max angle',
+		Min = 1,
+		Max = 360,
+		Default = 360
+	})
+	AttackableCheck = KillauraV2:CreateToggle({Name = 'Attackable Check'})
+	Mouse = KillauraV2:CreateToggle({Name = 'Require mouse down'})
+	GUI = KillauraV2:CreateToggle({Name = 'GUI check'})
+	NoSwing = KillauraV2:CreateToggle({Name = 'No Swing'})
+	Face = KillauraV2:CreateToggle({Name = 'Face target'})
+end)
