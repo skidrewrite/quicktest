@@ -34801,7 +34801,9 @@ run(function()
 			CanAttackAC = true
 		end
 		if not CanAttackAC then return end
-     
+        local suc, plr = pcall(function()
+            return playersService:GetPlayerFromCharacter(attackTable.entityInstance)
+        end)
 
         local selfpos = attackTable.validate.selfPosition.value
         local targetpos = attackTable.validate.targetPosition.value
@@ -34829,6 +34831,10 @@ run(function()
             
             attackTable.validate.targetPosition = attackTable.validate.targetPosition or {value = targetpos}
             attackTable.validate.selfPosition = attackTable.validate.selfPosition or {value = selfpos}
+        end
+
+        if suc and plr then
+            if not select(2, whitelist:get(plr)) then return end
         end
 
 		if BO.Enabled then
@@ -35309,8 +35315,8 @@ run(function()
 						lplr.PlayerGui.MobileUI['2'].Visible = true
 					end)
 				end
-				debug.setupvalue(oldSwing or bedwars.SwordController.playSwordEffect, 6, bedwars.Knit)
-				debug.setupvalue(bedwars.ScytheController.playLocalAnimation, 3, bedwars.Knit)
+				debug.setupvalue(oldSwing or bedwars.SwordController.playSwordEffect, 6, bedwars.Controllers.ViewmodelController)
+				debug.setupvalue(bedwars.ScytheController.playLocalAnimation, 3, bedwars.Controllers.ViewmodelController)
 				Attacking = false
 				if armC0 then
 					AnimTween = tweenService:Create(gameCamera.Viewmodel.RightHand.RightWrist, TweenInfo.new(AnimationTween.Enabled and 0.001 or 0.3, Enum.EasingStyle.Exponential), {
