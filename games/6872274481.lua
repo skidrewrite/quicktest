@@ -12279,33 +12279,36 @@ run(function()
 	end
 
 	local function isBedDefended(bedBlock)
-		-- Check if bed has hollow/air pockets that make it harder to break
-		-- Returns true if the bed is heavily defended, false if it's breakable from current position
+		-- Only consider a bed "defended" if there are ENEMY blocks actively blocking the path
+		-- Not just because the bed has structural gaps
 		if not bedBlock then return false end
 		
 		local bedPos = bedBlock.Position / 3
+		local playerPos = (entitylib.character and entitylib.character.RootPart.Position) or Vector3.zero
+		local dirToBed = (bedPos * 3 - playerPos).Unit
 		
-		-- Check for surrounding blocks that indicate a hollow defense
-		local adjacentPositions = {
-			bedPos + Vector3.new(3, 0, 0),
-			bedPos + Vector3.new(-3, 0, 0),
-			bedPos + Vector3.new(0, 3, 0),
-			bedPos + Vector3.new(0, -3, 0),
-			bedPos + Vector3.new(0, 0, 3),
-			bedPos + Vector3.new(0, 0, -3)
-		}
+		-- Check blocks in a line between player and bed for defensive placement
+		local distance = (bedPos * 3 - playerPos).Magnitude
+		local blocksInPath = 0
 		
-		-- If most surrounding positions are empty/air, bed is defended (hallowed)
-		local emptyCount = 0
-		for _, pos in adjacentPositions do
-			local block = getPlacedBlock(pos)
-			if not block then
-				emptyCount += 1
+		for i = 6, distance - 3, 3 do
+			local checkPos = roundPos(playerPos + dirToBed * i)
+			local blockAtPos = getPlacedBlock(checkPos)
+			
+			if blockAtPos and blockAtPos ~= bedBlock then
+				-- Make sure it's actually a defensively placed block (not the bed itself)
+				local blockTeam = blockAtPos:GetAttribute('Team') or blockAtPos:GetAttribute('TeamId')
+				local bedTeam = bedBlock:GetAttribute('Team') or bedBlock:GetAttribute('TeamId')
+				
+				if blockTeam and bedTeam and tonumber(blockTeam) == tonumber(bedTeam) then
+					blocksInPath += 1
+				end
 			end
 		end
 		
-		-- If more than 3 sides are empty, consider it a defended bed
-		return emptyCount > 3
+		-- Only consider defended if there are 2+ defensive blocks between you and the bed
+		-- This prevents false positives from bed structure holes
+		return blocksInPath >= 2
 	end
 
 	local function passesChecks(v)
@@ -12519,7 +12522,6 @@ run(function()
 				
 				local beds = collection('bed', Breaker)
 
-				local lockedPathBlock = nil
 				repeat
 					task.wait(1 / math.clamp(UpdateRate.Value, 1, 60))
 					if not Breaker.Enabled then break end
@@ -12528,7 +12530,7 @@ run(function()
 
 						local best, bestDist = nil, math.huge
 						
-						-- First pass: find breakable beds in range that are NOT heavily defended
+						-- Find the closest breakable bed
 						for _, bed in beds do
 							if not bed or not bed.Parent then continue end
 							local dist = (bed.Position - localPosition).Magnitude
@@ -12547,49 +12549,19 @@ run(function()
 								end
 							end
 							
-							-- Skip heavily defended beds
-							if not isBedDefended(bed) then
-								best = bed
-								bestDist = dist
-							end
-						end
-						
-						-- Second pass: if no undefended beds found, look for blocks in front of player to clear defense
-						if not best then
-							for _, bed in beds do
-								if not bed or not bed.Parent then continue end
-								local dist = (bed.Position - localPosition).Magnitude
-								if dist >= Range.Value or dist >= bestDist then continue end
-								if not cachedIsBreakable(bed) then continue end
-								if not passesChecks(bed) then continue end
-								
-								-- Check angle constraint
-								if BreakerAngle and BreakerAngle.Value < 360 then
-									local hrp = entitylib.character and entitylib.character.RootPart
-									if hrp then
-										local toBlock = (bed.Position - hrp.Position).Unit
-										local dot = hrp.CFrame.LookVector:Dot(toBlock)
-										local angleToBlock = math.deg(math.acos(math.clamp(dot, -1, 1)))
-										if angleToBlock > BreakerAngle.Value / 2 then continue end
-									end
-								end
-								
-								best = bed
-								bestDist = dist
-							end
+							best = bed
+							bestDist = dist
 						end
 					
 						if best then
 							if not MouseDown or not MouseDown.Enabled or inputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-								-- If bed is defended, break the path blocks first
-								if isBedDefended(best) then
-									local pathBlock = findPathBlock(best.Position, localPosition)
-									if pathBlock then
-										doBreak(pathBlock, true)
-									else
-										doBreak(best, false)
-									end
+								-- ALWAYS try to break blocks in front first, regardless of defense status
+								local pathBlock = findPathBlock(best.Position, localPosition)
+								if pathBlock then
+									-- Break the path block first to clear any defense
+									doBreak(pathBlock, true)
 								else
+									-- No blocks in the way, break the bed directly
 									doBreak(best, false)
 								end
 								continue
