@@ -46112,6 +46112,7 @@ run(function()
     local Height
     local VelocityMultiplier
     local Network
+    local FrozenItems = {}
     
     LootTP = vape.Categories.Utility:CreateModule({
         Name = 'LootTP',
@@ -46128,58 +46129,68 @@ run(function()
                             -- Check if item is in the void (below a certain Y position, e.g., -100)
                             if v.Position.Y < -100 then
                                 if isnetworkowner(v) and Network.Enabled and entitylib.character.Humanoid.Health > 0 then
-                                    -- Launch item high into the sky
+                                    -- Launch item to the sky at specified height
                                     local skyHeight = Height.Value
                                     local targetPosition = localPosition + Vector3.new(0, skyHeight, 0)
                                     
-                                    -- Calculate upward velocity
-                                    local direction = (targetPosition - v.Position).Unit
-                                    local distance = (targetPosition - v.Position).Magnitude
-                                    local velocity = direction * (distance * VelocityMultiplier.Value)
+                                    -- Teleport item to the sky position
+                                    v.CFrame = CFrame.new(targetPosition)
                                     
-                                    -- Set velocity if the item has a humanoid or is a physics object
+                                    -- Freeze the item by setting velocity to zero and disabling physics
                                     if v:FindFirstChild('BodyVelocity') then
-                                        v.BodyVelocity.Velocity = velocity
-                                    elseif v:IsA('BasePart') then
-                                        -- Try to apply velocity directly
-                                        v.AssemblyLinearVelocity = velocity
+                                        v.BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                                    else
+                                        v.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                                     end
                                     
-                                    -- Teleport item to the sky
-                                    v.CFrame = CFrame.new(targetPosition)
+                                    -- Store the item as frozen with its target position
+                                    FrozenItems[v] = targetPosition
                                 end
-                                
-                                -- Bring it back to player once it's falling
-                                if (localPosition - v.Position).Magnitude <= 50 and v.Position.Y < localPosition.Y then
-                                    task.spawn(function()
-                                        bedwars.Client:Get(remotes.PickupItem):CallServerAsync({
-                                            itemDrop = v
-                                        }):andThen(function(suc)
-                                            if suc and bedwars.SoundList then
-                                                bedwars.SoundManager:playSound(bedwars.SoundList.PICKUP_ITEM_DROP)
-                                                local sound = bedwars.ItemMeta[v.Name].pickUpOverlaySound
-                                                if sound then
-                                                    bedwars.SoundManager:playSound(sound, {
-                                                        position = v.Position,
-                                                        volumeMultiplier = 0.9
-                                                    })
-                                                end
-                                            end
-                                        end)
-                                    end)
+                            elseif FrozenItems[v] then
+                                -- Keep frozen items at their target position
+                                v.CFrame = CFrame.new(FrozenItems[v])
+                                if v:FindFirstChild('BodyVelocity') then
+                                    v.BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                                else
+                                    v.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                                 end
                             end
                         end
                     end
                     task.wait(0.1)
                 until not LootTP.Enabled
+                
+                -- When disabled, teleport all frozen items back to player
+                for item, _ in pairs(FrozenItems) do
+                    if item and item.Parent then
+                        task.spawn(function()
+                            bedwars.Client:Get(remotes.PickupItem):CallServerAsync({
+                                itemDrop = item
+                            }):andThen(function(suc)
+                                if suc and bedwars.SoundList then
+                                    bedwars.SoundManager:playSound(bedwars.SoundList.PICKUP_ITEM_DROP)
+                                    local sound = bedwars.ItemMeta[item.Name].pickUpOverlaySound
+                                    if sound then
+                                        bedwars.SoundManager:playSound(sound, {
+                                            position = item.Position,
+                                            volumeMultiplier = 0.9
+                                        })
+                                    end
+                                end
+                            end)
+                        end)
+                    end
+                end
+                
+                -- Clear frozen items table
+                FrozenItems = {}
             end
         end,
-        Tooltip = 'Teleports dropped items from the void back to you'
+        Tooltip = 'Freezes dropped items at a specific height and returns them when disabled'
     })
     
     Height = LootTP:CreateSlider({
-        Name = 'Sky Height',
+        Name = 'Void Height',
         Min = 50,
         Max = 500,
         Default = 200,
