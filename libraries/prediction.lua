@@ -1,8 +1,21 @@
+--[[
+	Prediction Library
+	Source: https://devforum.roblox.com/t/predict-projectile-ballistics-including-gravity-and-motion/1842434
+]]
 local module = {}
 local eps = 1e-9
+local cloneref = cloneref or function(ref) return ref end
+local tweenService = cloneref(game:GetService('TweenService'))
 local function isZero(d)
 	return (d > -eps and d < eps)
 end
+
+local tracer = Instance.new('Part')
+tracer.Anchored = true
+tracer.CanCollide = false
+tracer.CanQuery = false
+tracer.CanTouch = false
+tracer.CastShadow = false
 
 local function cuberoot(x)
 	return (x > 0) and math.pow(x, (1 / 3)) or -math.pow(math.abs(x), (1 / 3))
@@ -22,7 +35,7 @@ local function solveQuadric(c0, c1, c2)
 		return s0
 	elseif (D < 0) then
 		return
-	else 
+	else -- if (D > 0)
 		local sqrt_D = math.sqrt(D)
 
 		s0 = sqrt_D - p
@@ -51,16 +64,16 @@ local function solveCubic(c0, c1, c2, c3)
 	D = q * q + cb_p
 
 	if isZero(D) then
-		if isZero(q) then 
+		if isZero(q) then -- one triple solution
 			s0 = 0
 			num = 1
-		else 
+		else -- one single and one double solution
 			local u = cuberoot(-q)
 			s0 = 2 * u
 			s1 = -u
 			num = 2
 		end
-	elseif (D < 0) then 
+	elseif (D < 0) then -- Casus irreducibilis: three real solutions
 		local phi = (1 / 3) * math.acos(-q / math.sqrt(-cb_p))
 		local t = 2 * math.sqrt(-p)
 
@@ -68,7 +81,7 @@ local function solveCubic(c0, c1, c2, c3)
 		s1 = -t * math.cos(phi + math.pi / 3)
 		s2 = -t * math.cos(phi - math.pi / 3)
 		num = 3
-	else
+	else -- one real solution
 		local sqrt_D = math.sqrt(D)
 		local u = cuberoot(sqrt_D - q)
 		local v = -cuberoot(sqrt_D + q)
@@ -182,24 +195,63 @@ function module.solveQuartic(c0, c1, c2, c3, c4)
 	return {s3, s2, s1, s0}
 end
 
+function module.SpawnTracer(from, to, custom)
+    local distance = (to - from).Magnitude
+    if distance < 0.01 then return end
+
+    local t = tracer:Clone()
+    t.Color = custom.Color
+    t.Size = vector.create(custom.Thick, custom.Thick, distance)
+    t.CFrame = CFrame.lookAt(from, to) * CFrame.new(0, 0, -distance / 2)
+    t.Material = custom.Material
+	t.Transparency = custom.Opacity or 0
+
+   	if custom.Fade then
+		tweenService:Create(t, TweenInfo.new(custom.Lifetime), {
+			Transparency = 1
+		}):Play()
+	end
+    return t
+end
+
+function module.SpawnArcTracer(origin, aimDirection, projectileSpeed, gravity, travelTime, steps, custom)
+    steps = steps or 20
+    local stepTime = travelTime / steps
+    local g = Vector3.new(0, -gravity, 0)
+    local velocity = aimDirection * projectileSpeed
+
+    local prevPos = origin
+    local model = Instance.new('Model')
+    model.Parent = workspace.Terrain
+	if custom.Material == Enum.Material.Glass then
+		Instance.new('Highlight', model).Enabled = false
+	end
+    for i = 1, steps do
+        local t = i * stepTime
+        local nextPos = origin + velocity * t + 0.5 * g * t * t
+        local l = module.SpawnTracer(prevPos, nextPos, custom)
+        l.Parent = model
+        prevPos = nextPos
+    end
+	task.delay(custom.Lifetime, model.Destroy, model)
+end
 function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, targetVelocity, playerGravity, playerHeight, playerJump, params)
 	local disp = targetPos - origin
 	local p, q, r = targetVelocity.X, targetVelocity.Y, targetVelocity.Z
 	local h, j, k = disp.X, disp.Y, disp.Z
 	local l = -.5 * gravity
-
+	--attemped gravity calculation, may return to it in the future.
 	if math.abs(q) > 0.01 and playerGravity and playerGravity > 0 then
 		local estTime = (disp.Magnitude / projectileSpeed)
 		local origq = q
+		local origj = j
 		for i = 1, 100 do
-			q = origq - (.5 * playerGravity) * estTime
+			q -= (.5 * playerGravity) * estTime
 			local velo = targetVelocity * 0.016
-			local ray = workspace:Raycast(Vector3.new(targetPos.X, targetPos.Y, targetPos.Z), 
-				Vector3.new(velo.X, (q * estTime) - playerHeight, velo.Z), params)
-			
+			local ray = workspace.Raycast(workspace, Vector3.new(targetPos.X, targetPos.Y, targetPos.Z), Vector3.new(velo.X, (q * estTime) - playerHeight, velo.Z), params)
 			if ray then
 				local newTarget = ray.Position + Vector3.new(0, playerHeight, 0)
-				estTime = estTime - math.sqrt(((targetPos - newTarget).Magnitude * 2) / playerGravity)
+				estTime -= math.sqrt(((targetPos - newTarget).Magnitude * 2) / playerGravity)
 				targetPos = newTarget
 				j = (targetPos - origin).Y
 				q = 0
@@ -217,17 +269,14 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 		2*j*q + 2*h*p + 2*k*r,
 		j*j + h*h + k*k
 	)
-	
 	if solutions then
-		local posRoots = {}
-		for _, v in solutions do
+		local posRoots = table.create(2)
+		for _, v in solutions do --filter out the negative roots
 			if v > 0 then
 				table.insert(posRoots, v)
 			end
 		end
-		table.sort(posRoots)
 		posRoots[1] = posRoots[1]
-
 		if posRoots[1] then
 			local t = posRoots[1]
 			local d = (h + p*t)/t
@@ -242,8 +291,7 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 		local f = (k + r*t)/t
 		return origin + Vector3.new(d, e, f)
 	end
-	
-	return targetPos
+
 end
 
 return module
