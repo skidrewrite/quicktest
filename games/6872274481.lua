@@ -35632,14 +35632,7 @@ run(function()
             SwingTimeSlider.Object.Visible = callback
         end
     })
-    SwingTimeSlider = Killaura:CreateSlider({
-        Name = 'Swing Time',
-        Min = 0,
-        Max = 1,
-        Default = 0.42,
-        Decimal = 100,
-        Visible = false
-    })
+   AnimDelay = tick() + 0.0703
     ContinueSwinging = Killaura:CreateToggle({
         Name = 'Continue Swinging',
         Tooltip = 'Swing X times after losing target (based on swing speed)',
