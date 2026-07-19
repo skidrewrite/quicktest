@@ -14,7 +14,7 @@ end
 local function downloadFile(path, func)
 	if not isfile(path) then
 		local suc, res = pcall(function()
-			return game:HttpGet('https://raw.githubusercontent.com/R12sa/R12SAVapeV4/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true)
+			return game:HttpGet('https://raw.githubusercontent.com/skidrewrite/quicktest/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true)
 		end)
 		if not suc or res == '404: Not Found' then
 			error(res)
@@ -59,7 +59,7 @@ local function downloadPremadeProfiles(commit)
     end
 
     local success, response = pcall(function()
-        return game:HttpGet('https://api.github.com/repos/R12sa/R12SAVapeV4/contents/profiles/premade?ref=' .. commit)
+        return game:HttpGet('https://api.github.com/repos/skidrewrite/quicktest/contents/profiles/premade?ref=' .. commit)
     end)
 
     if success and response then
@@ -121,12 +121,12 @@ end)
 
 if not shared.VapeDeveloper then
 	local _, subbed = pcall(function()
-		return game:HttpGet('https://github.com/R12sa/R12SAVapeV4')
+		return game:HttpGet('https://github.com/skidrewrite/quicktest')
 	end)
 
 	local commit = 'main'
 	local ok, res = pcall(function()
-		return game:HttpGet('https://api.github.com/repos/R12sa/R12SAVapeV4/commits/main', true)
+		return game:HttpGet('https://api.github.com/repos/skidrewrite/quicktest/commits/main', true)
 	end)
 
 	if ok and res then
